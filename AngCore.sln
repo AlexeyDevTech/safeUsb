@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35118.90
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AngCore", "AngCore\AngCore.csproj", "{2B81EC59-5ED0-4668-ABC6-09AD65083EDF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AngCore.Terminal", "AngCore.Terminal\AngCore.Terminal.csproj", "{CA5E64C8-C0D4-4B84-A121-AFF64C463449}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2B81EC59-5ED0-4668-ABC6-09AD65083EDF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2B81EC59-5ED0-4668-ABC6-09AD65083EDF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2B81EC59-5ED0-4668-ABC6-09AD65083EDF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2B81EC59-5ED0-4668-ABC6-09AD65083EDF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CA5E64C8-C0D4-4B84-A121-AFF64C463449}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CA5E64C8-C0D4-4B84-A121-AFF64C463449}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CA5E64C8-C0D4-4B84-A121-AFF64C463449}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CA5E64C8-C0D4-4B84-A121-AFF64C463449}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8B068B7E-02AE-4C1D-AFB8-17C336936A83}
+	EndGlobalSection
+EndGlobal
