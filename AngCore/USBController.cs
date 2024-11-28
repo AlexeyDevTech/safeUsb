@@ -9,6 +9,18 @@ namespace AngCore
 {
     public delegate void ControllerDataReceivedEventHandler(object sender, PortDataReceivedType type, object message);
 
+
+    /*
+     * пометки:
+     * важно понимать, что операции write необходимо использовать с задержками, так как эти операции не могут выполниться 
+     * мгновенно
+     * среднее время операции для baudrate:
+     * 9600 -- 150мс
+     * 96000 -- 15мс
+     * 115200 -- 10мс
+     * 
+     * + стоит учесть, что есть 
+     */
     public partial class USBController : IDisposable
     {
         TaskCompletionSource<DataPacket> OnDataTCS { get; set; }
@@ -22,6 +34,8 @@ namespace AngCore
         {
             Log.Information($"Create a instance USBController from {portName}");
             _port = new SerialPort(portName, BaudRate);
+            _port.ReadTimeout = 100;  
+            _port.DataReceived += OnData;
             WriteTimeoutTimer = new Timer(WriteFree);
         }
         private void OnFreeWrite()
@@ -37,26 +51,38 @@ namespace AngCore
         /// </summary>
         public void BlockWrite()
         {
-            Log.Warning($"{_port.PortName} Write block");
+            Log.Warning($"{_port.PortName} Write block!");
             WriteTimeoutTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         }
 
         //механизм чтения по событию
         private void OnData(object sender, SerialDataReceivedEventArgs e)
         {
+            //Log.Information("Instance receive a message");
+            //Thread.Sleep(10); //дросселирование
             var p = ((SerialPort)sender);
-            if((Status & PortStatus.Open) != 0 && (Status & PortStatus.Reading) == 0)
-                if (p.BytesToRead > 0)
+            if ((Status & PortStatus.Open) != 0 && (Status & PortStatus.Reading) == 0)
+                Task.Factory.StartNew(async() =>
                 {
-                    Read(p);
-                }
+                    while (p.BytesToRead > 0)
+                    {
+                        Read(p);
+                        await Task.Delay(10);
+                    }
+                });
+                
         }     
         public bool TryWrite(byte[] data)
         {
             var res = false;
             try
             {
+                while ((Status & PortStatus.Writing) != 0)
+                {
+                    Thread.Sleep(10);
+                }
                 Write(data);
+                Thread.Sleep(150);
                 res = true;
             }
             catch (PortBusyException)
@@ -90,20 +116,27 @@ namespace AngCore
             lostTryingWrite = 3;
             return res;
         }
-        public bool TryWrite(string data)
+        public async Task<bool> TryWrite(string data)
         {
             var res = false;
             try
             {
+                while ((Status & PortStatus.Writing) != 0) 
+                {
+                   await Task.Delay(10);
+                }
                 Write(data);
                 res = true;
             }
             catch (PortBusyException)
             {
+
+                Log.Error("Port writing busy. message ignored.");
                 return false;
             }
             catch (PortFaultException)
             {
+                Log.Error("Port fault. Please Dispose it");
                 return false;
             }
             catch (TimeoutException toex)
@@ -143,7 +176,10 @@ namespace AngCore
                     _port.Open();
                     Thread.Sleep(50);
                     if (_port.IsOpen)
+                    {
                         res = true;
+                        Status |= PortStatus.Open;
+                    }
 
                 }
             }
@@ -162,17 +198,69 @@ namespace AngCore
             return res;
         }
 
-        public async bool TryDetect(string request, string responce, CancellationToken token, int attempts = 3)
+        public async Task<bool> TryDetect(string request, string responce, CancellationToken token, int attempts = 3)
         {
-            if (TryWrite(request))
+            Log.Information("Start detect instance...");
+            while (attempts > 0)
             {
-                token.Register(() => );
+                Log.Information($"Try write (attempts = {attempts})...");
+                OnDataTCS = new TaskCompletionSource<DataPacket>();
+                if (await TryWrite(request))
+                {
+                    token.Register(() => OnDataTCS.TrySetCanceled());
+                    Log.Information($"{_port.PortName} -> Wait callback");
+                    var msg = await OnDataTCS.Task;
+                    if (msg != null)
+                    {//TODO: добавить цикл на проверку, дочитал ли он до конца или нет 
+                        if (msg.TypeData == PortDataReceivedType.String)
+                        {
+                            if ((msg.Data as string)?.Contains(responce) ?? false)
+                            {
+                                return true;
+                            }
+                            else
+                            {
+                                Log.Warning($"msg is not responce. Try again");
+                                attempts--;
+                            }
+                        }
+                        //else return false;
+                    }
+                    else
+                    {
+                        Log.Warning($"msg is null. Try again");
+                        attempts--;
+                    }
+                }
+                await Task.Delay(100);
+                //attempts--;
             }
-
+            return false;
         }
-        public async bool TryDetect(byte[] request, byte[] responce, int attempts = 3)
+        public async Task<bool> TryDetect(byte[] request, byte[] responce, CancellationToken token ,int attempts = 3)
         {
-
+            while (attempts > 0)
+            {
+                token.Register(() => OnDataTCS.TrySetCanceled());
+                if (TryWrite(request))
+                {
+                    var msg = await OnDataTCS.Task;
+                    if (msg != null)
+                    {
+                        if (msg.TypeData == PortDataReceivedType.Byte)
+                        {
+                            if((msg.Data as byte[])?.SequenceEqual(responce) ?? false)
+                            {
+                                return true;
+                            }
+                        }
+                        else return false;
+                    }
+                }
+                await Task.Delay(100);
+                attempts--;
+            }
+            return false;
         }
     }
 
@@ -189,7 +277,7 @@ namespace AngCore
         }
         private void Read(SerialPort p)
         {
-            Log.Information($"{p.PortName} Reading data. Type data = {ReadingDataType}");
+            //Log.Information($"{p.PortName} Reading data. Type data = {ReadingDataType}");
             try
             {
                 if((Status & PortStatus.Fault) != 0) throw new PortFaultException();
@@ -198,25 +286,20 @@ namespace AngCore
                 switch (ReadingDataType)
                 {
                     case PortDataReceivedType.String:
-                        var d = p.ReadExisting();
-                        foreach (var item in d.Split('\n'))
-                        {
-                            Log.Information($"{p.PortName} data Read. result = {item}. Call event");
-                            //try call event from data received
-                            if(!OnDataTCS?.Task.IsCompleted ?? false)
-                                OnDataTCS?.TrySetResult(new DataPacket
-                                {
-                                    TypeData = ReadingDataType,
-                                    Data = item,
-                                });
-
-                            OnDataReceived?.Invoke(this, ReadingDataType, item);
-                        }
+                        var d = p.ReadLine();
+                        Log.Information($"{p.PortName}(BTR={p.BytesToRead}) data Read(String). result = {d}");
+                        if (!OnDataTCS?.Task.IsCompleted ?? false)
+                            OnDataTCS?.TrySetResult(new DataPacket
+                            {
+                                TypeData = ReadingDataType,
+                                Data = d,
+                            });
+                        OnDataReceived?.Invoke(this, ReadingDataType, d);
                         break;
                     case PortDataReceivedType.Byte:
                         var buffer = new byte[p.BytesToRead];
                         p.Read(buffer, 0, buffer.Length);
-                        Log.Information($"{p.PortName} data Read. result = {Encoding.UTF8.GetString(buffer)}. Call event");
+                        Log.Information($"{p.PortName} data Read(Byte[]). Result = {Encoding.UTF8.GetString(buffer)}");
                         if (!OnDataTCS?.Task.IsCompleted ?? false)
                             OnDataTCS?.TrySetResult(new DataPacket
                             {
@@ -250,10 +333,7 @@ namespace AngCore
             {
                 Log.Error($"Unexcepted error {ex.Message}");
             }
-            finally
-            {
-                Status &= ~PortStatus.Reading;
-            }
+            Status &= ~PortStatus.Reading;
 
         }
         public void Write(byte[] data)
@@ -265,9 +345,9 @@ namespace AngCore
                 try
                 {
                     Status |= PortStatus.Writing;
-                    //физическое открытие порта
                     if ((Status & (PortStatus.Open)) != 0)
                     {
+                    Log.Information($"{_port.PortName} Write bytes: L={data.Length}");
                         _port.Write(data, 0, data.Length);
                     }
                 }
@@ -290,6 +370,7 @@ namespace AngCore
                     //физическое открытие порта
                     if ((Status & (PortStatus.Open)) != 0)
                     {
+                        Log.Information($"{_port.PortName} Write string: {data}");
                         _port.Write(data);
                     }
                 }
