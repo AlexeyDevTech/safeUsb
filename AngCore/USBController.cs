@@ -21,8 +21,13 @@ namespace AngCore
      * 
      * + стоит учесть, что есть 
      */
-    public partial class USBController : IDisposable
+    public class USBController : IDisposable
     {
+        protected SerialPort _port;
+        public event ControllerDataReceivedEventHandler OnDataReceived;
+        int lostTryingWrite = 3;
+        private Timer WriteTimeoutTimer;
+
         TaskCompletionSource<DataPacket> OnDataTCS { get; set; }
 
         public PortStatus Status = PortStatus.Idle;
@@ -56,7 +61,7 @@ namespace AngCore
         }
 
         //механизм чтения по событию
-        private void OnData(object sender, SerialDataReceivedEventArgs e)
+        protected virtual void OnData(object sender, SerialDataReceivedEventArgs e)
         {
             //Log.Information("Instance receive a message");
             //Thread.Sleep(10); //дросселирование
@@ -262,14 +267,7 @@ namespace AngCore
             }
             return false;
         }
-    }
-
-    public partial class USBController
-    {
-        SerialPort _port;
-        public event ControllerDataReceivedEventHandler OnDataReceived;
-        int lostTryingWrite = 3;
-        private Timer WriteTimeoutTimer;
+       
         private void WriteFree(object? state)
         {
             Log.Information($"{_port?.PortName} Write status free");
@@ -280,36 +278,10 @@ namespace AngCore
             //Log.Information($"{p.PortName} Reading data. Type data = {ReadingDataType}");
             try
             {
-                if((Status & PortStatus.Fault) != 0) throw new PortFaultException();
+                if ((Status & PortStatus.Fault) != 0) throw new PortFaultException();
                 if ((Status & PortStatus.Reading) != 0) throw new PortBusyException();
                 Status |= PortStatus.Reading;
-                switch (ReadingDataType)
-                {
-                    case PortDataReceivedType.String:
-                        var d = p.ReadLine();
-                        Log.Information($"{p.PortName}(BTR={p.BytesToRead}) data Read(String). result = {d}");
-                        if (!OnDataTCS?.Task.IsCompleted ?? false)
-                            OnDataTCS?.TrySetResult(new DataPacket
-                            {
-                                TypeData = ReadingDataType,
-                                Data = d,
-                            });
-                        OnDataReceived?.Invoke(this, ReadingDataType, d);
-                        break;
-                    case PortDataReceivedType.Byte:
-                        var buffer = new byte[p.BytesToRead];
-                        p.Read(buffer, 0, buffer.Length);
-                        Log.Information($"{p.PortName} data Read(Byte[]). Result = {Encoding.UTF8.GetString(buffer)}");
-                        if (!OnDataTCS?.Task.IsCompleted ?? false)
-                            OnDataTCS?.TrySetResult(new DataPacket
-                            {
-                                TypeData = ReadingDataType,
-                                Data = buffer,
-                            });
-
-                        OnDataReceived?.Invoke(this, ReadingDataType, buffer);
-                        break;
-                }
+                HandleData();
             }
             catch (TimeoutException toex)
             {
@@ -336,25 +308,55 @@ namespace AngCore
             Status &= ~PortStatus.Reading;
 
         }
+        protected void HandleData()
+        {
+            switch (ReadingDataType)
+            {
+                case PortDataReceivedType.String:
+                    var d = p.ReadLine();
+                    Log.Information($"{p.PortName}(BTR={p.BytesToRead}) data Read(String). result = {d}");
+                    if (!OnDataTCS?.Task.IsCompleted ?? false)
+                        OnDataTCS?.TrySetResult(new DataPacket
+                        {
+                            TypeData = ReadingDataType,
+                            Data = d,
+                        });
+                    OnDataReceived?.Invoke(this, ReadingDataType, d);
+                    break;
+                case PortDataReceivedType.Byte:
+                    var buffer = new byte[p.BytesToRead];
+                    p.Read(buffer, 0, buffer.Length);
+                    Log.Information($"{p.PortName} data Read(Byte[]). Result = {Encoding.UTF8.GetString(buffer)}");
+                    if (!OnDataTCS?.Task.IsCompleted ?? false)
+                        OnDataTCS?.TrySetResult(new DataPacket
+                        {
+                            TypeData = ReadingDataType,
+                            Data = buffer,
+                        });
+
+                    OnDataReceived?.Invoke(this, ReadingDataType, buffer);
+                    break;
+            }
+        }
         public void Write(byte[] data)
         {
             if ((Status & (PortStatus.Writing)) != 0)
                 throw new PortBusyException();
             if ((Status & (PortStatus.Fault)) != 0)
                 throw new PortFaultException();
-                try
+            try
+            {
+                Status |= PortStatus.Writing;
+                if ((Status & (PortStatus.Open)) != 0)
                 {
-                    Status |= PortStatus.Writing;
-                    if ((Status & (PortStatus.Open)) != 0)
-                    {
                     Log.Information($"{_port.PortName} Write bytes: L={data.Length}");
-                        _port.Write(data, 0, data.Length);
-                    }
+                    _port.Write(data, 0, data.Length);
                 }
-                finally
-                {
-                    OnFreeWrite();
-                }
+            }
+            finally
+            {
+                OnFreeWrite();
+            }
         }
         public void Write(string data)
         {
@@ -400,6 +402,28 @@ namespace AngCore
         }
     }
 
+    public class UsbManagedController : USBController
+    {
+        ControllerReader reader;
+        public UsbManagedController(string portName, int BaudRate = 115200, bool autoFault = false) : base(portName, BaudRate, autoFault)
+        {
+            reader = new ControllerReader(_port);
+            reader.DataReceived = DR;
+        }
+
+        private void DR(string obj)
+        {
+
+        }
+
+        protected override void OnData(object sender, SerialDataReceivedEventArgs e)
+        {
+            //base.OnData(sender, e);
+            reader.Read();
+        }
+
+    }
+
     internal class DataPacket
     {
         public PortDataReceivedType TypeData { get; set; }
@@ -420,5 +444,72 @@ namespace AngCore
         Writing = 0x04,       //для последовательного порта операции записи и чтения обязательно должны быть разделены
         Reading = 0x08,       //
         Fault = 0xF0        //устройство в ошибке, требуется повторная инициализация устройства
+    }
+
+    public class ControllerReader
+    {
+        SerialPort _port;
+        bool _isReading = false;
+        Queue<char> _chars = new Queue<char>();
+        public Action<string> DataReceived { get; set; }
+        public ControllerReader(SerialPort port)
+        {
+            _port = port;
+        }
+
+        public void Read()
+        {
+            _isReading = true;
+            while (_port.BytesToRead > 0)
+            {
+                try
+                {
+                    var d = _port.ReadByte();
+                    if (d != -1)
+                        _chars.Enqueue((char)d);
+                }
+                catch (TimeoutException)
+                {
+                    Log.Error("port reading timeout");
+                }
+                catch(InvalidOperationException e)
+                {
+                    Log.Error(e, "port already closed");
+                }
+
+            }
+
+            while(_chars.Count > 0)
+            {
+                var str = ReadFromQueue();
+                if (string.IsNullOrEmpty(str)) break; //прерывание чтобы не было зацикливания
+                DataReceived?.Invoke(str);
+            }
+        }
+        // Метод для чтения данных из очереди
+        public string ReadFromQueue()
+        {
+            var result = new List<char>();
+            lock (_chars)
+            {
+                while (_chars.Count > 0)
+                {
+                    var ch = _chars.Dequeue();
+                    result.Add(ch);
+                    if (ch == '\n')
+                        return new string(result.ToArray());
+                }
+            }
+            if (_chars.Count == 0) // вычитали всё и не встретили /n
+            {
+                foreach (var ch in result)
+                {
+                    _chars.Enqueue(ch); // возвращаем в очередь
+                }
+            }
+                
+
+            return string.Empty;
+        }
     }
 }
