@@ -23,13 +23,17 @@ namespace AngCore
      */
     public partial class USBController : IDisposable
     {
+        SerialPort _port;
+        public event ControllerDataReceivedEventHandler OnDataReceived;
+        int lostTryingWrite = 3;
+        private Timer WriteTimeoutTimer;
         TaskCompletionSource<DataPacket> OnDataTCS { get; set; }
 
         public PortStatus Status = PortStatus.Idle;
         public PortDataReceivedType ReadingDataType { get; set; } = PortDataReceivedType.String;
         public bool AutoFaultWhenOverTryingWrite { get; set; } = false;
         //таймаут между отправками сообщений. Если выставить -1 
-        public int WriteDelayTimeout { get; set; } = 200;
+        public int WriteDelayTimeout { get; set; } = 1000;
         public USBController(string portName, int BaudRate = 115200, bool autoFault = false)
         {
             Log.Information($"Create a instance USBController from {portName}");
@@ -61,12 +65,13 @@ namespace AngCore
             //Log.Information("Instance receive a message");
             //Thread.Sleep(10); //дросселирование
             var p = ((SerialPort)sender);
-            if ((Status & PortStatus.Open) != 0 && (Status & PortStatus.Reading) == 0)
+            if ((Status & PortStatus.Open) != 0)
                 Task.Factory.StartNew(async() =>
                 {
                     while (p.BytesToRead > 0)
                     {
-                        Read(p);
+                        if ((Status & PortStatus.Reading) == 0)
+                            Read(p);
                         await Task.Delay(10);
                     }
                 });
@@ -262,14 +267,8 @@ namespace AngCore
             }
             return false;
         }
-    }
 
-    public partial class USBController
-    {
-        SerialPort _port;
-        public event ControllerDataReceivedEventHandler OnDataReceived;
-        int lostTryingWrite = 3;
-        private Timer WriteTimeoutTimer;
+      
         private void WriteFree(object? state)
         {
             Log.Information($"{_port?.PortName} Write status free");
@@ -280,7 +279,7 @@ namespace AngCore
             //Log.Information($"{p.PortName} Reading data. Type data = {ReadingDataType}");
             try
             {
-                if((Status & PortStatus.Fault) != 0) throw new PortFaultException();
+                if ((Status & PortStatus.Fault) != 0) throw new PortFaultException();
                 if ((Status & PortStatus.Reading) != 0) throw new PortBusyException();
                 Status |= PortStatus.Reading;
                 switch (ReadingDataType)
@@ -342,19 +341,19 @@ namespace AngCore
                 throw new PortBusyException();
             if ((Status & (PortStatus.Fault)) != 0)
                 throw new PortFaultException();
-                try
+            try
+            {
+                Status |= PortStatus.Writing;
+                if ((Status & (PortStatus.Open)) != 0)
                 {
-                    Status |= PortStatus.Writing;
-                    if ((Status & (PortStatus.Open)) != 0)
-                    {
                     Log.Information($"{_port.PortName} Write bytes: L={data.Length}");
-                        _port.Write(data, 0, data.Length);
-                    }
+                    _port.Write(data, 0, data.Length);
                 }
-                finally
-                {
-                    OnFreeWrite();
-                }
+            }
+            finally
+            {
+                OnFreeWrite();
+            }
         }
         public void Write(string data)
         {
