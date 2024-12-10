@@ -30,7 +30,7 @@ namespace AngCore.Terminal
             }
             Task.Factory.StartNew(async () =>
             {
-                await controller.TryWrite("#LAB?");
+                await controller.TryWriteAsync("#LAB?");                
                 await Task.Delay(100);
             });
             

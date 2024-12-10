@@ -29,6 +29,9 @@ namespace AngCore
         private Timer WriteTimeoutTimer;
         TaskCompletionSource<DataPacket> OnDataTCS { get; set; }
 
+        private readonly PortWrite _PortWrite;
+        private readonly PortRead _PortRead;
+
         public PortStatus Status = PortStatus.Idle;
         public PortDataReceivedType ReadingDataType { get; set; } = PortDataReceivedType.String;
         public bool AutoFaultWhenOverTryingWrite { get; set; } = false;
@@ -37,10 +40,13 @@ namespace AngCore
         public USBController(string portName, int BaudRate = 115200, bool autoFault = false)
         {
             Log.Information($"Create a instance USBController from {portName}");
-            _port = new SerialPort(portName, BaudRate);
+            _port = new SerialPort(portName, BaudRate);            
             _port.ReadTimeout = 100;  
             _port.DataReceived += OnData;
             WriteTimeoutTimer = new Timer(WriteFree);
+
+            // Инициализация _portWrite с передачей ссылки на метод OnFreeWrite
+            _PortWrite = new PortWrite(OnFreeWrite);
         }
         private void OnFreeWrite()
         {
@@ -71,102 +77,97 @@ namespace AngCore
                     while (p.BytesToRead > 0)
                     {
                         if ((Status & PortStatus.Reading) == 0)
-                            Read(p);
+                            _PortRead.Read(p, ReadingDataType, ref Status);
                         await Task.Delay(10);
                     }
                 });
                 
-        }     
-        public bool TryWrite(byte[] data)
-        {
-            var res = false;
-            try
-            {
-                while ((Status & PortStatus.Writing) != 0)
-                {
-                    Thread.Sleep(10);
-                }
-                Write(data);
-                Thread.Sleep(150);
-                res = true;
-            }
-            catch (PortBusyException)
-            {
-                return false;
-            }
-            catch (PortFaultException)
-            {
-                return false;
-            }
-            catch (TimeoutException toex)
-            {
-                if (AutoFaultWhenOverTryingWrite)
-                {
-                    lostTryingWrite--;
-                    if (lostTryingWrite < 0)
-                        Status |= PortStatus.Fault;
-                }
-                return false;
-            }
-            catch (InvalidOperationException ioex)
-            {
-                Status &= ~PortStatus.Open;
-                Status |= PortStatus.Fault;
-                return false;
-            }
-            catch (Exception ex)
-            {
-                return false;
-            }
-            lostTryingWrite = 3;
-            return res;
         }
-        public async Task<bool> TryWrite(string data)
+
+        public bool TryWrite(object data)
         {
-            var res = false;
+            return _PortWrite.TryWrite(_port, data, ref Status, AutoFaultWhenOverTryingWrite, lostTryingWrite);
+        }
+
+        public async Task<bool> TryWriteAsync(object data)
+        {
+            return await _PortWrite.TryWriteAsync(_port, data, Status, AutoFaultWhenOverTryingWrite, lostTryingWrite);
+        }
+
+
+        public void Write(object data)
+        {
+            _PortWrite.Write(_port, data, ref Status);
+        }
+
+
+        public async Task<bool> SendCommandAndCheckResponse(object request, object ExpectedResponse, CancellationToken CancellationToken)
+        {
             try
             {
-                while ((Status & PortStatus.Writing) != 0) 
+                // Отправляем команду
+                if (!TryWrite(request))
                 {
-                   await Task.Delay(10);
+                    Log.Warning("Failed to send command.");
+                    return false;
                 }
-                Write(data);
-                res = true;
-            }
-            catch (PortBusyException)
-            {
 
-                Log.Error("Port writing busy. message ignored.");
-                return false;
-            }
-            catch (PortFaultException)
-            {
-                Log.Error("Port fault. Please Dispose it");
-                return false;
-            }
-            catch (TimeoutException toex)
-            {
-                if (AutoFaultWhenOverTryingWrite)
+                // Создаем TaskCompletionSource для ожидания ответа
+                OnDataTCS = new TaskCompletionSource<DataPacket>();
+
+                // Отменяем ожидание по токену отмены
+                CancellationToken.Register(() => OnDataTCS.TrySetCanceled());
+
+                Log.Information("Command sent. Waiting for response...");
+
+                // Ожидаем получения данных
+                var ReceivedData = await OnDataTCS.Task;
+
+                // Проверяем тип данных
+                if (ExpectedResponse is string && ReceivedData.TypeData != PortDataReceivedType.String)
                 {
-                    lostTryingWrite--;
-                    if (lostTryingWrite < 0)
-                        Status |= PortStatus.Fault;
+                    Log.Warning("Response type mismatch. Expected string.");
+                    return false;
                 }
+                if (ExpectedResponse is byte[] && ReceivedData.TypeData != PortDataReceivedType.Byte)
+                {
+                    Log.Warning("Response type mismatch. Expected byte[].");
+                    return false;
+                }
+
+                // Сравниваем данные
+                if (ExpectedResponse is string ExpectedString)
+                {
+                    if (ReceivedData.Data is string ActualString && ActualString.Contains(ExpectedString))
+                    {
+                        return true;
+                    }
+                }
+                else if (ExpectedResponse is byte[] ExpectedBytes)
+                {
+                    if (ReceivedData.Data is byte[] ActualBytes && ActualBytes.SequenceEqual(ExpectedBytes))
+                    {
+                        return true;
+                    }
+                }
+
+                Log.Warning("Response does not match the expected value.");
                 return false;
             }
-            catch (InvalidOperationException ioex)
+            catch (TaskCanceledException)
             {
-                Status &= ~PortStatus.Open;
-                Status |= PortStatus.Fault;
+                Log.Warning("Operation canceled while waiting for response.");
                 return false;
             }
             catch (Exception ex)
             {
+                Log.Error($"Unexpected error in SendCommandAndCheckResponse: {ex.Message}");
                 return false;
             }
-            lostTryingWrite = 3;
-            return res;
-        }     
+        }
+
+
+
         public bool TryOpen()
         {
             if ((Status & PortStatus.Fault) != 0)
@@ -210,7 +211,7 @@ namespace AngCore
             {
                 Log.Information($"Try write (attempts = {attempts})...");
                 OnDataTCS = new TaskCompletionSource<DataPacket>();
-                if (await TryWrite(request))
+                if (await TryWriteAsync(request))
                 {
                     token.Register(() => OnDataTCS.TrySetCanceled());
                     Log.Information($"{_port.PortName} -> Wait callback");
@@ -273,112 +274,8 @@ namespace AngCore
         {
             Log.Information($"{_port?.PortName} Write status free");
             Status &= ~PortStatus.Writing;
-        }
-        private void Read(SerialPort p)
-        {
-            //Log.Information($"{p.PortName} Reading data. Type data = {ReadingDataType}");
-            try
-            {
-                if ((Status & PortStatus.Fault) != 0) throw new PortFaultException();
-                if ((Status & PortStatus.Reading) != 0) throw new PortBusyException();
-                Status |= PortStatus.Reading;
-                switch (ReadingDataType)
-                {
-                    case PortDataReceivedType.String:
-                        var d = p.ReadLine();
-                        Log.Information($"{p.PortName}(BTR={p.BytesToRead}) data Read(String). result = {d}");
-                        if (!OnDataTCS?.Task.IsCompleted ?? false)
-                            OnDataTCS?.TrySetResult(new DataPacket
-                            {
-                                TypeData = ReadingDataType,
-                                Data = d,
-                            });
-                        OnDataReceived?.Invoke(this, ReadingDataType, d);
-                        break;
-                    case PortDataReceivedType.Byte:
-                        var buffer = new byte[p.BytesToRead];
-                        p.Read(buffer, 0, buffer.Length);
-                        Log.Information($"{p.PortName} data Read(Byte[]). Result = {Encoding.UTF8.GetString(buffer)}");
-                        if (!OnDataTCS?.Task.IsCompleted ?? false)
-                            OnDataTCS?.TrySetResult(new DataPacket
-                            {
-                                TypeData = ReadingDataType,
-                                Data = buffer,
-                            });
-
-                        OnDataReceived?.Invoke(this, ReadingDataType, buffer);
-                        break;
-                }
-            }
-            catch (TimeoutException toex)
-            {
-                Log.Error("Timeout reading");
-            }
-            catch (InvalidOperationException ioex)
-            {
-                Log.Error("Port closed. instance fault.");
-                Status |= PortStatus.Fault;
-            }
-            catch (PortBusyException)
-            {
-                Log.Error("Port already reading. Please wait");
-            }
-            catch (PortFaultException)
-            {
-                Log.Error("Port instance fault. Dispose it.");
-            }
-
-            catch (Exception ex)
-            {
-                Log.Error($"Unexcepted error {ex.Message}");
-            }
-            Status &= ~PortStatus.Reading;
-
-        }
-        public void Write(byte[] data)
-        {
-            if ((Status & (PortStatus.Writing)) != 0)
-                throw new PortBusyException();
-            if ((Status & (PortStatus.Fault)) != 0)
-                throw new PortFaultException();
-            try
-            {
-                Status |= PortStatus.Writing;
-                if ((Status & (PortStatus.Open)) != 0)
-                {
-                    Log.Information($"{_port.PortName} Write bytes: L={data.Length}");
-                    _port.Write(data, 0, data.Length);
-                }
-            }
-            finally
-            {
-                OnFreeWrite();
-            }
-        }
-        public void Write(string data)
-        {
-            if ((Status & (PortStatus.Writing)) != 0)
-                throw new PortBusyException();
-            if ((Status & (PortStatus.Fault)) != 0)
-                throw new PortFaultException();
-            if ((Status & (PortStatus.Open)) != 0)
-            {
-                try
-                {
-                    Status |= PortStatus.Writing;
-                    //физическое открытие порта
-                    if ((Status & (PortStatus.Open)) != 0)
-                    {
-                        Log.Information($"{_port.PortName} Write string: {data}");
-                        _port.Write(data);
-                    }
-                }
-                finally
-                {
-                    OnFreeWrite();
-                }
-            }
-        }
+        }        
+        
         public void Dispose()
         {
             Dispose(true);
