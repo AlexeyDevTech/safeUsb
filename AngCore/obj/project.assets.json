@@ -2449,11 +2449,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\Документы\\Работа\\safeUsb-main\\AngCore\\AngCore.csproj",
+      "projectUniqueName": "D:\\Документы\\Работа\\safeUsb\\AngCore\\AngCore.csproj",
       "projectName": "AngCore",
-      "projectPath": "D:\\Документы\\Работа\\safeUsb-main\\AngCore\\AngCore.csproj",
+      "projectPath": "D:\\Документы\\Работа\\safeUsb\\AngCore\\AngCore.csproj",
       "packagesPath": "C:\\Users\\Kharets\\.nuget\\packages\\",
-      "outputPath": "D:\\Документы\\Работа\\safeUsb-main\\AngCore\\obj\\",
+      "outputPath": "D:\\Документы\\Работа\\safeUsb\\AngCore\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "D:\\Приложения\\Visual Studio\\Shared\\NuGetPackages"

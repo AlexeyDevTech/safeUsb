@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AngCore")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ca8b48cde81ecdb9c46a09b0f95bc174ae7490d8")]
 [assembly: System.Reflection.AssemblyProductAttribute("AngCore")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AngCore")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

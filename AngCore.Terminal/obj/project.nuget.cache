@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "eBPLwkHEwXw=",
+  "dgSpecHash": "reAPdWxXPZs=",
   "success": true,
-  "projectFilePath": "D:\\Документы\\Работа\\safeUsb-main\\AngCore.Terminal\\AngCore.Terminal.csproj",
+  "projectFilePath": "D:\\Документы\\Работа\\safeUsb\\AngCore.Terminal\\AngCore.Terminal.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Kharets\\.nuget\\packages\\microsoft.extensions.configuration.abstractions\\8.0.0\\microsoft.extensions.configuration.abstractions.8.0.0.nupkg.sha512",
     "C:\\Users\\Kharets\\.nuget\\packages\\microsoft.extensions.configuration.binder\\8.0.0\\microsoft.extensions.configuration.binder.8.0.0.nupkg.sha512",

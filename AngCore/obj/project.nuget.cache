@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "klga5seQcpg=",
+  "dgSpecHash": "4Gbq3lGTK88=",
   "success": true,
-  "projectFilePath": "D:\\Документы\\Работа\\safeUsb-main\\AngCore\\AngCore.csproj",
+  "projectFilePath": "D:\\Документы\\Работа\\safeUsb\\AngCore\\AngCore.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Kharets\\.nuget\\packages\\microsoft.extensions.configuration.abstractions\\8.0.0\\microsoft.extensions.configuration.abstractions.8.0.0.nupkg.sha512",
     "C:\\Users\\Kharets\\.nuget\\packages\\microsoft.extensions.configuration.binder\\8.0.0\\microsoft.extensions.configuration.binder.8.0.0.nupkg.sha512",

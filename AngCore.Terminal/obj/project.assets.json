@@ -2471,11 +2471,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\Документы\\Работа\\safeUsb-main\\AngCore.Terminal\\AngCore.Terminal.csproj",
+      "projectUniqueName": "D:\\Документы\\Работа\\safeUsb\\AngCore.Terminal\\AngCore.Terminal.csproj",
       "projectName": "AngCore.Terminal",
-      "projectPath": "D:\\Документы\\Работа\\safeUsb-main\\AngCore.Terminal\\AngCore.Terminal.csproj",
+      "projectPath": "D:\\Документы\\Работа\\safeUsb\\AngCore.Terminal\\AngCore.Terminal.csproj",
       "packagesPath": "C:\\Users\\Kharets\\.nuget\\packages\\",
-      "outputPath": "D:\\Документы\\Работа\\safeUsb-main\\AngCore.Terminal\\obj\\",
+      "outputPath": "D:\\Документы\\Работа\\safeUsb\\AngCore.Terminal\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "D:\\Приложения\\Visual Studio\\Shared\\NuGetPackages"
@@ -2496,8 +2496,8 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "D:\\Документы\\Работа\\safeUsb-main\\AngCore\\AngCore.csproj": {
-              "projectPath": "D:\\Документы\\Работа\\safeUsb-main\\AngCore\\AngCore.csproj"
+            "D:\\Документы\\Работа\\safeUsb\\AngCore\\AngCore.csproj": {
+              "projectPath": "D:\\Документы\\Работа\\safeUsb\\AngCore\\AngCore.csproj"
             }
           }
         }
